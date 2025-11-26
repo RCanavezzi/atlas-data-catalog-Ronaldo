@@ -1,0 +1,115 @@
+services:
+  atlas:
+    image: sburn/apache-atlas:latest
+    container_name: apache-atlas
+    ports:
+      - "21000:21000"
+    environment:
+      - JAVA_OPTS=-Xmx1024m -Xms512m
+      - ATLAS_SERVER_OPTS=-server -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:+UseConcMarkSweepGC -XX:+CMSPermGenSweepingEnabled
+    volumes:
+      - atlas_data:/opt/atlas/data
+      - atlas_logs:/opt/atlas/logs
+    restart: unless-stopped
+    mem_limit: 2g
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - plataform-network
+
+  postgres_erp:
+    container_name: postgres-erp
+    image: postgres:14.19-alpine3.21
+    restart: always
+    environment:
+      POSTGRES_DB: northwind
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:                  
+      - postgres_data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d
+    ports:
+      - 2001:5432
+    networks:
+      - plataform-network
+  pyspark-aula:
+    build:
+      context: .
+      dockerfile: Dockerfile_Spark
+    
+    container_name: pyspark_aula_container
+    
+    # Mapeia as portas
+    ports:
+      - "8888:8888" # Porta do Jupyter Notebook
+      - "4040:4040" # Porta da UI do Spark (importante para monitorar os jobs!)
+      
+    # Mapeia o diretório local para o contêiner (Persistência dos arquivos)
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./data:/home/jovyan/data
+      - ./spark_jobs:/home/jovyan/work/spark_jobs
+      - ./iceberg_warehouse:/home/jovyan/iceberg-warehouse
+
+    # Variáveis de ambiente
+    environment:
+      # Token de acesso ao Jupyter (opcional, mas recomendado para segurança)
+      - JUPYTER_TOKEN=tavares1234
+      # Configurações do Spark (opcional, mas bom para aumentar a memória para testes)
+      - SPARK_DRIVER_MEMORY=4g
+      - SPARK_EXECUTOR_MEMORY=4g
+      
+    # Reinicia o contêiner em caso de falha
+    restart: always
+    networks:
+      - plataform-network
+  airflow-standalone:
+    build:
+      context: .
+      dockerfile: Dockerfile_AirFlow
+    # build: .
+    # image: airflow3-custom:latest
+    user: root
+    ports:
+      - "5000:8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres_erp:5432/northwind
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data:rw
+      - ./spark_jobs:/opt/airflow/spark_jobs
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      bash -c "
+      /opt/airflow/init_connections.sh &&
+      airflow standalone
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - plataform-network
+
+volumes:
+  postgres_data:
+  atlas_data:
+  atlas_logs:
+  iceberg_warehouse:
+
+networks:
+  plataform-network:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.16.240.0/24"

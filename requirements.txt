@@ -1,0 +1,7 @@
+pandas==2.1.4
+apache-airflow-providers-postgres==5.7.1
+apache-airflow-providers-apache-spark==4.7.1
+apache-airflow-providers-docker==3.7.0
+psycopg2-binary==2.9.9
+sqlalchemy==1.4.53
+requests>=2.25.0

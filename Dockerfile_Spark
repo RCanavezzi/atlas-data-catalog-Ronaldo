@@ -1,0 +1,44 @@
+FROM jupyter/pyspark-notebook:latest
+
+USER root
+
+# Install additional packages
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download Iceberg Spark runtime and PostgreSQL JDBC driver
+RUN wget -O /usr/local/spark/jars/iceberg-spark-runtime-3.5_2.12-1.4.3.jar \
+    https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/1.4.3/iceberg-spark-runtime-3.5_2.12-1.4.3.jar && \
+    wget -O /usr/local/spark/jars/postgresql-42.7.1.jar \
+    https://jdbc.postgresql.org/download/postgresql-42.7.1.jar
+
+# Install Python packages for Atlas integration and Iceberg
+RUN pip install --no-cache-dir \
+    requests \
+    psycopg2-binary \
+    pandas \
+    matplotlib \
+    seaborn \
+    pyiceberg[s3fs,hive]
+
+# Configure Spark for Iceberg
+RUN mkdir -p /usr/local/spark/conf && \
+    echo "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions" > /usr/local/spark/conf/spark-defaults.conf && \
+    echo "spark.sql.catalog.spark_catalog=org.apache.iceberg.spark.SparkSessionCatalog" >> /usr/local/spark/conf/spark-defaults.conf && \
+    echo "spark.sql.catalog.spark_catalog.type=hive" >> /usr/local/spark/conf/spark-defaults.conf && \
+    echo "spark.sql.catalog.iceberg=org.apache.iceberg.spark.SparkCatalog" >> /usr/local/spark/conf/spark-defaults.conf && \
+    echo "spark.sql.catalog.iceberg.type=hadoop" >> /usr/local/spark/conf/spark-defaults.conf && \
+    echo "spark.sql.catalog.iceberg.warehouse=/home/jovyan/iceberg-warehouse" >> /usr/local/spark/conf/spark-defaults.conf
+
+# Create Iceberg warehouse directory and fix permissions
+RUN mkdir -p /home/jovyan/iceberg-warehouse /home/jovyan/work /home/jovyan/data && \
+    chown -R jovyan:users /home/jovyan && \
+    chmod -R 755 /home/jovyan
+
+USER jovyan
+
+WORKDIR /home/jovyan/work
+
+CMD ["start-notebook.sh", "--NotebookApp.token='tavares1234'", "--NotebookApp.password=''"]
